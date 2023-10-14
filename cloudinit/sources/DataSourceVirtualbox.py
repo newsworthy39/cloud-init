@@ -1,21 +1,24 @@
 # Cloud-Init DataSource for VirtualBox
 #
-# Copyright (c) 2018-2023 VMware, Inc. All Rights Reserved.
+# Copyright (c) 2023 VMware, Inc. All Rights Reserved.
 #
 # Authors: Anish Swaminathan <anishs@vmware.com>
 #          Andrew Kutz <akutz@vmware.com>
 #          Pengpeng Sun <pengpengs@vmware.com>
 #
+# Co-Author: newsworthy39 <newsworthy39@github.com>
+#
 # This file is part of cloud-init. See LICENSE file for license information.
 
-"""Cloud-Init DataSource for VMware
+"""Cloud-Init DataSource for VirtualBox
 
-This module provides a cloud-init datasource for VMware systems and supports
+This module provides a cloud-init datasource for VirtualBox systems and supports
 multiple transports types, including:
 
     * EnvVars
     * GuestInfo
-    * IMC (Guest Customization)
+
+All credits belong to the VMware-team for making the original DataSource.
 
 Netifaces (https://github.com/al45tair/netifaces)
 
@@ -119,14 +122,6 @@ class DataSourceVirtualbox(sources.DataSource):
         For example, CentOS 7's official cloud-init package is version
         0.7.9 and does not support Network Config Version 2.
 
-        imc transport:
-            Either Network Config Version 1 or Network Config Version 2 is
-            supported which depends on the customization type.
-            For LinuxPrep customization, Network config Version 1 data is
-            parsed from the customization specification.
-            For CloudinitPrep customization, Network config Version 2 data
-            is parsed from the customization specification.
-
         envvar and guestinfo tranports:
             Network Config Version 2 data is supported as long as the Linux
             distro's cloud-init package is new enough to parse the data.
@@ -151,7 +146,7 @@ class DataSourceVirtualbox(sources.DataSource):
         # A tuple has 3 elements which are:
         # 1. The transport name
         # 2. The function name to get data for the transport
-        # 3. A boolean tells whether the transport requires VMware platform
+        # 3. A boolean tells whether the transport requires Virtualbox platform
         self.possible_data_access_method_list = [
             (DATA_ACCESS_METHOD_ENVVAR, self.get_envvar_data_fn, False),
             (DATA_ACCESS_METHOD_GUESTINFO, self.get_guestinfo_data_fn, True),
@@ -170,7 +165,7 @@ class DataSourceVirtualbox(sources.DataSource):
             * guestproperty
 
         Please note when updating this function with support for new data
-        transports, the order should match the order in the dscheck_VMware
+        transports, the order should match the order in the dscheck_Virtualbox
         function from the file ds-identify.
         """
 
@@ -466,7 +461,7 @@ def get_guestproperty_key_name(key):
 
 
 def get_guestinfo_envvar_key_name(key):
-    return ("VBox." + get_guestproperty_key_name(key)).upper().replace("/", "_", -1)
+    return ("VBox" + get_guestproperty_key_name(key)).upper().replace("/", "_", -1)
 
 
 def guestinfo_envvar(key):
