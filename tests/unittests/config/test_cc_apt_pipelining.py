@@ -2,6 +2,8 @@
 
 """Tests cc_apt_pipelining handler"""
 
+import re
+
 import pytest
 
 import cloudinit.config.cc_apt_pipelining as cc_apt_pipelining
@@ -39,15 +41,15 @@ class TestAptPipelining:
             ({"apt_pipelining": 1}, None),
             ({"apt_pipelining": True}, None),
             ({"apt_pipelining": False}, None),
-            ({"apt_pipelining": "none"}, None),
-            ({"apt_pipelining": "unchanged"}, None),
             ({"apt_pipelining": "os"}, None),
             # Invalid schemas
+            ({"apt_pipelining": "none"}, "Deprecated in version"),
+            ({"apt_pipelining": "unchanged"}, "Deprecated in version"),
             (
                 {"apt_pipelining": "bogus"},
-                "Cloud config schema errors: apt_pipelining: 'bogus' is not of"
-                " type 'integer', apt_pipelining: 'bogus' is not valid under"
-                " any of the given schemas",
+                re.escape(
+                    "Cloud config schema errors: apt_pipelining: 'bogus' is"
+                ),
             ),
         ),
     )

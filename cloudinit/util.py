@@ -84,20 +84,18 @@ def kernel_version():
 
 
 @lru_cache()
-def get_dpkg_architecture(target=None):
+def get_dpkg_architecture():
     """Return the sanitized string output by `dpkg --print-architecture`.
 
     N.B. This function is wrapped in functools.lru_cache, so repeated calls
     won't shell out every time.
     """
-    out = subp.subp(
-        ["dpkg", "--print-architecture"], capture=True, target=target
-    )
+    out = subp.subp(["dpkg", "--print-architecture"], capture=True)
     return out.stdout.strip()
 
 
 @lru_cache()
-def lsb_release(target=None):
+def lsb_release():
     fmap = {
         "Codename": "codename",
         "Description": "description",
@@ -107,7 +105,7 @@ def lsb_release(target=None):
 
     data = {}
     try:
-        out = subp.subp(["lsb_release", "--all"], capture=True, target=target)
+        out = subp.subp(["lsb_release", "--all"], capture=True)
         for line in out.stdout.splitlines():
             fname, _, val = line.partition(":")
             if fname in fmap:
@@ -287,7 +285,7 @@ def rand_str(strlen=32, select_from=None):
     r = random.SystemRandom()
     if not select_from:
         select_from = string.ascii_letters + string.digits
-    return "".join([r.choice(select_from) for _x in range(0, strlen)])
+    return "".join([r.choice(select_from) for _x in range(strlen)])
 
 
 def rand_dict_key(dictionary, postfix=None):
@@ -1166,7 +1164,8 @@ def read_cc_from_cmdline(cmdline=None):
     if cmdline is None:
         cmdline = get_cmdline()
 
-    tag_begin = "cc:"
+    cmdline = f" {cmdline}"
+    tag_begin = " cc:"
     tag_end = "end_cc"
     begin_l = len(tag_begin)
     end_l = len(tag_end)
@@ -2071,17 +2070,19 @@ def time_rfc2822():
 
 @lru_cache()
 def boottime():
-    """Use sysctlbyname(3) via ctypes to find kern.boottime
+    """Use sysctl(3) via ctypes to find kern.boottime
 
     kern.boottime is of type struct timeval. Here we create a
     private class to easier unpack it.
+    Use sysctl(3) (or sysctl(2) on OpenBSD) because sysctlbyname(3) does not
+    exist on OpenBSD. That complicates retrieval on NetBSD, which #defines
+    KERN_BOOTTIME as 83 instead of 21.
+    21 on NetBSD is KERN_OBOOTTIME, the kern.boottime up until NetBSD 5.0
 
     @return boottime: float to be compatible with linux
     """
     import ctypes
     import ctypes.util
-
-    NULL_BYTES = b"\x00"
 
     class timeval(ctypes.Structure):
         _fields_ = [("tv_sec", ctypes.c_int64), ("tv_usec", ctypes.c_int64)]
@@ -2089,10 +2090,16 @@ def boottime():
     libc = ctypes.CDLL(ctypes.util.find_library("c"))
     size = ctypes.c_size_t()
     size.value = ctypes.sizeof(timeval)
+    mib_values = [  # This corresponds to
+        1,  # CTL_KERN, and
+        21 if not is_NetBSD() else 83,  # KERN_BOOTTIME
+    ]
+    mib = (ctypes.c_int * 2)(*mib_values)
     buf = timeval()
     if (
-        libc.sysctlbyname(
-            b"kern.boottime" + NULL_BYTES,
+        libc.sysctl(
+            mib,
+            ctypes.c_int(len(mib_values)),
             ctypes.byref(buf),
             ctypes.byref(size),
             None,
@@ -2140,29 +2147,6 @@ def safe_int(possible_int):
         return int(possible_int)
     except (ValueError, TypeError):
         return None
-
-
-def compare_permission(mode1, mode2):
-    """Compare two file modes in octal.
-
-    If mode1 is less restrictive than mode2 return 1
-    If mode1 is more restrictive than mode2 return -1
-    If mode1 is same as mode2, return 0
-
-    The comparison starts from the permission of the
-    set of users in "others" and then works up to the
-    permission of "user" set.
-    """
-    # Convert modes to octal and reverse the last 3 digits
-    # so 0o640 would be become 0o046
-    mode1_oct = oct(mode1)[2:].rjust(3, "0")
-    mode2_oct = oct(mode2)[2:].rjust(3, "0")
-    m1 = int(mode1_oct[:-3] + mode1_oct[-3:][::-1], 8)
-    m2 = int(mode2_oct[:-3] + mode2_oct[-3:][::-1], 8)
-
-    # Then do a traditional cmp()
-    # https://docs.python.org/3.0/whatsnew/3.0.html#ordering-comparisons
-    return (m1 > m2) - (m1 < m2)
 
 
 def chmod(path, mode):
@@ -2314,10 +2298,6 @@ def make_header(comment_char="#", base="created"):
     header += " %s by cloud-init v. %s" % (base.title(), ci_ver)
     header += " on %s" % time_rfc2822()
     return header
-
-
-def abs_join(base, *paths):
-    return os.path.abspath(os.path.join(base, *paths))
 
 
 # shellify, takes a list of commands
@@ -2972,8 +2952,8 @@ def message_from_string(string):
     return email.message_from_string(string)
 
 
-def get_installed_packages(target=None):
-    out = subp.subp(["dpkg-query", "--list"], target=target, capture=True)
+def get_installed_packages():
+    out = subp.subp(["dpkg-query", "--list"], capture=True)
 
     pkgs_inst = set()
     for line in out.stdout.splitlines():
@@ -3236,6 +3216,7 @@ def deprecate(
     deprecated_version: str,
     extra_message: Optional[str] = None,
     schedule: int = 5,
+    return_log: bool = False,
 ):
     """Mark a "thing" as deprecated. Deduplicated deprecations are
     logged.
@@ -3252,6 +3233,8 @@ def deprecate(
     @param schedule: Manually set the deprecation schedule. Defaults to
         5 years. Leave a comment explaining your reason for deviation if
         setting this value.
+    @param return_log: Return log text rather than logging it. Useful for
+        running prior to logging setup.
 
     Note: uses keyword-only arguments to improve legibility
     """
@@ -3261,13 +3244,15 @@ def deprecate(
     dedup = hash(deprecated + message + deprecated_version + str(schedule))
     version = Version.from_str(deprecated_version)
     version_removed = Version(version.major + schedule, version.minor)
+    deprecate_msg = (
+        f"{deprecated} is deprecated in "
+        f"{deprecated_version} and scheduled to be removed in "
+        f"{version_removed}. {message}"
+    ).rstrip()
+    if return_log:
+        return deprecate_msg
     if dedup not in deprecate._log:  # type: ignore
         deprecate._log.add(dedup)  # type: ignore
-        deprecate_msg = (
-            f"{deprecated} is deprecated in "
-            f"{deprecated_version} and scheduled to be removed in "
-            f"{version_removed}. {message}"
-        ).rstrip()
         if hasattr(LOG, "deprecated"):
             LOG.deprecated(deprecate_msg)  # type: ignore
         else:

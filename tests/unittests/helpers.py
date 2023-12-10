@@ -21,7 +21,7 @@ from urllib.parse import urlsplit, urlunsplit
 import responses
 
 import cloudinit
-from cloudinit import cloud, distros
+from cloudinit import atomic_helper, cloud, distros
 from cloudinit import helpers as ch
 from cloudinit import subp, util
 from cloudinit.config.schema import (
@@ -69,7 +69,7 @@ def retarget_many_wrapper(new_base, am, old_func):
         nam = am
         if am == -1:
             nam = len(n_args)
-        for i in range(0, nam):
+        for i in range(nam):
             path = args[i]
             # patchOS() wraps various os and os.path functions, however in
             # Python 3 some of these now accept file-descriptors (integers).
@@ -276,8 +276,8 @@ class FilesystemMockingTestCase(ResourceUsingTestCase):
             make_path = rebase_path(real_path[len(real_root) :], target_root)
             util.ensure_dir(make_path)
             for f in filenames:
-                real_path = util.abs_join(real_path, f)
-                make_path = util.abs_join(make_path, f)
+                real_path = os.path.abspath(os.path.join(real_path, f))
+                make_path = os.path.abspath(os.path.join(make_path, f))
                 shutil.copy(real_path, make_path)
 
     def patchUtils(self, new_root):
@@ -292,6 +292,9 @@ class FilesystemMockingTestCase(ResourceUsingTestCase):
                 ("del_file", 1),
                 ("sym_link", -1),
                 ("copy", -1),
+            ],
+            atomic_helper: [
+                ("write_json", 1),
             ],
         }
         for (mod, funcs) in patch_funcs.items():

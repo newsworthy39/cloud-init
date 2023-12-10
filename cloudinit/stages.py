@@ -10,6 +10,7 @@ import logging
 import os
 import sys
 from collections import namedtuple
+from contextlib import suppress
 from typing import Dict, Iterable, List, Optional, Set
 
 from cloudinit import (
@@ -63,7 +64,7 @@ def update_event_enabled(
     datasource: sources.DataSource,
     cfg: dict,
     event_source_type: EventType,
-    scope: Optional[EventScope] = None,
+    scope: EventScope,
 ) -> bool:
     """Determine if a particular EventType is enabled.
 
@@ -92,11 +93,7 @@ def update_event_enabled(
     )
     LOG.debug("Allowed events: %s", allowed)
 
-    scopes: Iterable[EventScope]
-    if not scope:
-        scopes = allowed.keys()
-    else:
-        scopes = [scope]
+    scopes: Iterable[EventScope] = [scope]
     scope_values = [s.value for s in scopes]
 
     for evt_scope in scopes:
@@ -121,7 +118,7 @@ class Init:
         else:
             self.ds_deps = [sources.DEP_FILESYSTEM, sources.DEP_NETWORK]
         # Created on first use
-        self._cfg: Optional[dict] = None
+        self._cfg: Dict = {}
         self._paths: Optional[helpers.Paths] = None
         self._distro: Optional[distros.Distro] = None
         # Changed only when a fetch occurs
@@ -137,14 +134,11 @@ class Init:
             )
         self.reporter = reporter
 
-    def _reset(self, reset_ds=False):
+    def _reset(self):
         # Recreated on access
-        self._cfg = None
+        self._cfg = {}
         self._paths = None
         self._distro = None
-        if reset_ds:
-            self.datasource = None
-            self.ds_restored = False
 
     @property
     def distro(self):
@@ -178,8 +172,6 @@ class Init:
             ocfg = util.get_cfg_by_path(ocfg, ("system_info",), {})
         elif restriction == "paths":
             ocfg = util.get_cfg_by_path(ocfg, ("system_info", "paths"), {})
-        if not isinstance(ocfg, (dict)):
-            ocfg = {}
         return ocfg
 
     @property
@@ -219,25 +211,24 @@ class Init:
     def initialize(self):
         self._initialize_filesystem()
 
+    @staticmethod
+    def _get_strictest_mode(mode_1: int, mode_2: int) -> int:
+        return mode_1 & mode_2
+
     def _initialize_filesystem(self):
         mode = 0o640
-        fmode = None
 
         util.ensure_dirs(self._initial_subdirs())
         log_file = util.get_cfg_option_str(self.cfg, "def_log_file")
         if log_file:
             # At this point the log file should have already been created
-            # in the setup_logging function of log.py
+            # in the setupLogging function of log.py
+            with suppress(OSError):
+                mode = self._get_strictest_mode(
+                    0o640, util.get_permissions(log_file)
+                )
 
-            try:
-                fmode = util.get_permissions(log_file)
-            except OSError:
-                pass
-
-            # if existing file mode fmode is stricter, do not change it.
-            if fmode and util.compare_permission(fmode, mode) < 0:
-                mode = fmode
-
+            # set file mode to the strictest of 0o640 and the current mode
             util.ensure_file(log_file, mode, preserve_mode=False)
             perms = self.cfg.get("syslog_fix_perms")
             if not perms:
@@ -262,10 +253,8 @@ class Init:
             )
 
     def read_cfg(self, extra_fns=None):
-        # None check so that we don't keep on re-loading if empty
-        if self._cfg is None:
+        if not self._cfg:
             self._cfg = self._read_cfg(extra_fns)
-            # LOG.debug("Loaded 'init' config %s", self._cfg)
 
     def _read_cfg(self, extra_fns):
         no_cfg_paths = helpers.Paths({}, self.datasource)
@@ -387,6 +376,30 @@ class Init:
                 " Has a datasource been fetched??"
             )
         return instance_dir
+
+    def _write_network_config_json(self, netcfg: dict):
+        """Create /var/lib/cloud/instance/network-config.json
+
+        Only attempt once /var/lib/cloud/instance exists which is created
+        by Init.instancify once a datasource is detected.
+        """
+
+        if not os.path.islink(self.paths.instance_link):
+            # Datasource hasn't been detected yet, so we may not
+            # have visibility to datasource applicable network-config
+            return
+        ncfg_instance_path = self.paths.get_ipath_cur("network_config")
+        network_link = self.paths.get_runpath("network_config")
+        if os.path.exists(ncfg_instance_path):
+            # Compare and only write on delta of current network-config
+            if netcfg != util.load_json(util.load_file(ncfg_instance_path)):
+                atomic_helper.write_json(
+                    ncfg_instance_path, netcfg, mode=0o600
+                )
+        else:
+            atomic_helper.write_json(ncfg_instance_path, netcfg, mode=0o600)
+        if not os.path.islink(network_link):
+            util.sym_link(ncfg_instance_path, network_link)
 
     def _reflect_cur_instance(self):
         # Remove the old symlink and attach a new one so
@@ -956,6 +969,8 @@ class Init:
         Find the config, determine whether to apply it, apply it via
         the distro, and optionally bring it up
         """
+        from cloudinit.config.schema import validate_cloudconfig_schema
+
         netcfg, src = self._find_networking_config()
         if netcfg is None:
             LOG.info("network config is disabled by %s", src)
@@ -991,6 +1006,16 @@ class Init:
 
         # refresh netcfg after update
         netcfg, src = self._find_networking_config()
+        self._write_network_config_json(netcfg)
+
+        if netcfg and netcfg.get("version") == 1:
+            validate_cloudconfig_schema(
+                config=netcfg,
+                schema_type="network-config",
+                strict=False,
+                log_details=True,
+                log_deprecations=True,
+            )
 
         # ensure all physical devices in config are present
         self.distro.networking.wait_for_physdevs(netcfg)

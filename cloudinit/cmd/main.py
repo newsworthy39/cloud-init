@@ -41,8 +41,10 @@ from cloudinit.log import (
     setup_logging,
     reset_logging,
     configure_root_logger,
+    DEPRECATED,
 )
 from cloudinit.reporting import events
+from cloudinit.safeyaml import load
 from cloudinit.settings import PER_INSTANCE, PER_ALWAYS, PER_ONCE, CLOUD_CONFIG
 
 # Welcome message template
@@ -220,11 +222,17 @@ def attempt_cmdline_url(path, network=True, cmdline=None) -> Tuple[int, str]:
                 is_cloud_cfg = False
             if is_cloud_cfg:
                 if cmdline_name == "url":
-                    util.deprecate(
-                        deprecated="The kernel command line key `url`",
-                        deprecated_version="22.3",
-                        extra_message=" Please use `cloud-config-url` "
-                        "kernel command line parameter instead",
+                    return (
+                        DEPRECATED,
+                        str(
+                            util.deprecate(
+                                deprecated="The kernel command line key `url`",
+                                deprecated_version="22.3",
+                                extra_message=" Please use `cloud-config-url` "
+                                "kernel command line parameter instead",
+                                return_log=True,
+                            ),
+                        ),
                     )
             else:
                 if cmdline_name == "cloud-config-url":
@@ -477,9 +485,10 @@ def main_init(name, args):
         return (init.datasource, ["Consuming user data failed!"])
 
     # Validate user-data adheres to schema definition
-    if os.path.exists(init.paths.get_ipath_cur("userdata_raw")):
+    cloud_cfg_path = init.paths.get_ipath_cur("cloud_config")
+    if os.path.exists(cloud_cfg_path) and os.stat(cloud_cfg_path).st_size != 0:
         validate_cloudconfig_schema(
-            config=init.cfg,
+            config=load(util.load_file(cloud_cfg_path)),
             strict=False,
             log_details=False,
             log_deprecations=True,
@@ -758,7 +767,7 @@ def status_wrapper(name, args, data_d=None, link_d=None):
     v1 = status["v1"]
     v1["stage"] = mode
     v1[mode]["start"] = time.time()
-    v1[mode]["exported_errors"] = next(
+    v1[mode]["recoverable_errors"] = next(
         filter(lambda h: isinstance(h, LogExporter), root_logger.handlers)
     ).export_logs()
 
@@ -788,7 +797,7 @@ def status_wrapper(name, args, data_d=None, link_d=None):
     v1["stage"] = None
 
     # Write status.json after running init / module code
-    v1[mode]["exported_errors"] = next(
+    v1[mode]["recoverable_errors"] = next(
         filter(lambda h: isinstance(h, LogExporter), root_logger.handlers)
     ).export_logs()
     atomic_helper.write_json(status_path, status)
@@ -861,14 +870,6 @@ def main(sysv_args=None):
         help="Show program's version number and exit.",
     )
     parser.add_argument(
-        "--file",
-        "-f",
-        action="append",
-        dest="files",
-        help="Use additional yaml configuration files.",
-        type=argparse.FileType("rb"),
-    )
-    parser.add_argument(
         "--debug",
         "-d",
         action="store_true",
@@ -901,6 +902,14 @@ def main(sysv_args=None):
         help="Start in local mode (default: %(default)s).",
         default=False,
     )
+    parser_init.add_argument(
+        "--file",
+        "-f",
+        action="append",
+        dest="files",
+        help="Use additional yaml configuration files.",
+        type=argparse.FileType("rb"),
+    )
     # This is used so that we can know which action is selected +
     # the functor to use to run this subcommand
     parser_init.set_defaults(action=("init", main_init))
@@ -916,6 +925,14 @@ def main(sysv_args=None):
         help="Module configuration name to use (default: %(default)s).",
         default="config",
         choices=("init", "config", "final"),
+    )
+    parser_mod.add_argument(
+        "--file",
+        "-f",
+        action="append",
+        dest="files",
+        help="Use additional yaml configuration files.",
+        type=argparse.FileType("rb"),
     )
     parser_mod.set_defaults(action=("modules", main_modules))
 
@@ -948,6 +965,14 @@ def main(sysv_args=None):
         nargs="*",
         metavar="argument",
         help="Any additional arguments to pass to this module.",
+    )
+    parser_single.add_argument(
+        "--file",
+        "-f",
+        action="append",
+        dest="files",
+        help="Use additional yaml configuration files.",
+        type=argparse.FileType("rb"),
     )
     parser_single.set_defaults(action=("single", main_single))
 
@@ -987,7 +1012,10 @@ def main(sysv_args=None):
 
     if sysv_args:
         # Only load subparsers if subcommand is specified to avoid load cost
-        subcommand = sysv_args[0]
+        subcommand = next(
+            (posarg for posarg in sysv_args if not posarg.startswith("-")),
+            None,
+        )
         if subcommand == "analyze":
             from cloudinit.analyze import get_parser as analyze_parser
 
@@ -1046,9 +1074,14 @@ def main(sysv_args=None):
     # Subparsers.required = True and each subparser sets action=(name, functor)
     (name, functor) = args.action
 
-    # Setup basic logging to start (until reinitialized)
-    # iff in debug mode.
-    if args.debug:
+    # Setup basic logging for cloud-init:
+    # - for cloud-init stages if --debug
+    # - for all other subcommands:
+    #   - if --debug is passed, logging.DEBUG
+    #   - if --debug is not passed, logging.WARNING
+    if name not in ("init", "modules"):
+        setup_basic_logging(logging.DEBUG if args.debug else logging.WARNING)
+    elif args.debug:
         setup_basic_logging()
 
     # Setup signal handlers before running

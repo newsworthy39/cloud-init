@@ -15,14 +15,12 @@ Example output:
 
 .. code-block::
 
-   usage: cloud-init [-h] [--version] [--file FILES] [--debug] [--force]
+   usage: cloud-init [-h] [--version] [--debug] [--force]
                                                                {init,modules,single,query,features,analyze,devel,collect-logs,clean,status,schema} ...
 
     options:
       -h, --help            show this help message and exit
       --version, -v         Show program's version number and exit.
-      --file FILES, -f FILES
-                            Use additional yaml configuration files.
       --debug, -d           Show additional pre-action logging (default: False).
       --force               Force running even if no datasource is found (use at your own risk).
 
@@ -173,6 +171,7 @@ due to semaphores in :file:`/var/lib/cloud/instance/sem/` and
 :file:`/var/lib/cloud/sem`.
 
 * :command:`--local`: Run *init-local* stage instead of *init*.
+* :command:`--file` : Use additional yaml configuration files.
 
 .. _cli_modules:
 
@@ -195,6 +194,7 @@ to semaphores in :file:`/var/lib/cloud/`.
 * :command:`--mode [init|config|final]`: Run ``modules:init``,
   ``modules:config`` or ``modules:final`` ``cloud-init`` stages.
   See :ref:`boot_stages` for more info.
+* :command:`--file` : Use additional yaml configuration files.
 
 .. _cli_query:
 
@@ -307,6 +307,9 @@ Validate cloud-config files using jsonschema.
 * :command:`-h, --help`: Show this help message and exit.
 * :command:`-c CONFIG_FILE, --config-file CONFIG_FILE`: Path of the
   cloud-config YAML file to validate.
+* :command:`-t SCHEMA_TYPE, --schema-type SCHEMA_TYPE`: The schema type to
+  validate --config-file against. One of: cloud-config, network-config.
+  Default: cloud-config.
 * :command:`--system`: Validate the system cloud-config user data.
 * :command:`-d DOCS [cc_module ...], --docs DOCS [cc_module ...]`:
   Print schema module
@@ -332,6 +335,7 @@ Attempt to run a single, named, cloud config module.
 * :command:`--frequency`: Module frequency for this run.
   One of (``always``|``once-per-instance``|``once``).
 * :command:`--report`: Enable reporting.
+* :command:`--file` : Use additional yaml configuration files.
 
 The following example re-runs the ``cc_set_hostname`` module ignoring the
 module default frequency of ``once-per-instance``:
