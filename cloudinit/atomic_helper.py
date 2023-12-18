@@ -72,7 +72,6 @@ def json_serialize_default(_obj):
     except AttributeError:
         return "Warning: redacted unserializable type {0}".format(type(_obj))
 
-
 def json_dumps(data):
     """Return data in nicely formatted json."""
     return json.dumps(

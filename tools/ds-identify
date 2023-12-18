@@ -1,4 +1,5 @@
 #!/bin/sh
+#set -x
 # shellcheck disable=2015,2039,2162,2166,3043
 #
 # ds-identify is configured via /etc/cloud/ds-identify.cfg
@@ -124,7 +125,7 @@ DI_DSNAME=""
 DI_DSLIST_DEFAULT="MAAS ConfigDrive NoCloud AltCloud Azure Bigstep \
 CloudSigma CloudStack DigitalOcean Vultr AliYun Ec2 GCE OpenNebula OpenStack \
 OVF SmartOS Scaleway Hetzner IBMCloud Oracle Exoscale RbxCloud UpCloud VMware \
-LXD NWCS Akamai Virtualbox"
+LXD NWCS Akamai VirtualBox QEMU"
 DI_DSLIST=""
 DI_MODE=""
 DI_ON_FOUND=""
@@ -768,11 +769,18 @@ dscheck_CloudSigma() {
     return $DS_NOT_FOUND
 }
 
-dscheck_Virtualbox() {
+dscheck_VirtualBox() {
     # http://paste.ubuntu.com/23624795/
     dmi_product_name_matches "VirtualBox" && return $DS_FOUND
     return $DS_NOT_FOUND
 }
+
+dscheck_QEMU() {
+    # http://paste.ubuntu.com/23624795/
+    dmi_product_name_matches "QEMU" && return $DS_FOUND
+    return $DS_NOT_FOUND
+}
+
 
 
 dscheck_Akamai() {
