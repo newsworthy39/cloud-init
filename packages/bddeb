@@ -290,7 +290,7 @@ def main():
     capture = True
     if args.verbose:
         capture = False
-
+   
     templ_data = {
         "debian_release": args.release,
         "release_suffix": get_release_suffix(args.release),

@@ -10,6 +10,8 @@ NUM_ITER ?= 100
 
 distro ?= redhat
 
+RELEASE ?= $(shell /usr/bin/lsb_release -c -s)
+
 READ_VERSION=$(shell $(PYTHON) $(CWD)/tools/read-version || echo read-version-failed)
 CODE_VERSION=$(shell $(PYTHON) -c "from cloudinit import version; print(version.version_string())")
 GENERATOR_F=./systemd/cloud-init-generator
@@ -107,13 +109,13 @@ deb:
 		{ echo "Missing devscripts dependency. Install with:"; \
 			echo sudo apt-get install devscripts; exit 1; }
 
-	$(PYTHON) ./packages/bddeb
+	$(PYTHON) ./packages/bddeb --release $(RELEASE)
 
 deb-src:
 	@which debuild || \
 		{ echo "Missing devscripts dependency. Install with:"; \
 			echo sudo apt-get install devscripts; exit 1; }
-	$(PYTHON) ./packages/bddeb -S -d
+	$(PYTHON) ./packages/bddeb -S -d --release $(RELEASE)
 
 doc:
 	tox -e doc
