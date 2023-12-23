@@ -1,4 +1,4 @@
-# Cloud-Init DataSource for VirtualBox
+# Cloud-Init DataSource for Virtualbox
 #
 # Copyright (c) 2023 VMware, Inc. All Rights Reserved.
 #
@@ -10,9 +10,9 @@
 #
 # This file is part of cloud-init. See LICENSE file for license information.
 
-"""Cloud-Init DataSource for VirtualBox
+"""Cloud-Init DataSource for Virtualbox
 
-This module provides a cloud-init datasource for VirtualBox systems and supports
+This module provides a cloud-init datasource for Virtualbox systems and supports
 multiple transports types, including:
 
     * EnvVars
@@ -130,7 +130,7 @@ class DataSourceVirtualbox(sources.DataSource):
             and gzip+base64.
     """
 
-    dsname = "VirtualBox"
+    dsname = "Virtualbox"
 
     def __init__(self, sys_cfg, distro, paths, ud_proc=None):
         sources.DataSource.__init__(self, sys_cfg, distro, paths, ud_proc)
@@ -178,9 +178,9 @@ class DataSourceVirtualbox(sources.DataSource):
         for (
             data_access_method,
             get_data_fn,
-            require_virtualbox_platform,
+            require_Virtualbox_platform,
         ) in self.possible_data_access_method_list:
-            if require_virtualbox_platform and not is_virtualbox_platform():
+            if require_Virtualbox_platform and not is_Virtualbox_platform():
                 continue
 
             (md, ud, vd) = get_data_fn() # query the platform.
@@ -369,10 +369,9 @@ class DataSourceVirtualbox(sources.DataSource):
             return (None, None, None)
 
 
-def is_virtualbox_platform():
+def is_Virtualbox_platform():
     # /system-manufacturer
     system_type = dmi.read_dmi_data("system-product-name")
-    system_type = "VirtualBox"
     if system_type is None:
         LOG.debug("No system-product-name found")
         return False
@@ -457,7 +456,7 @@ def advertise_local_ip_addrs(host_info, rpctool, rpctool_fn):
 #    return None
 
 def get_guestproperty_key_name(key):
-    return "/VirtualBox/GuestInfo/" + key
+    return "/Virtualbox/GuestInfo/" + key
 
 
 def get_guestinfo_envvar_key_name(key):

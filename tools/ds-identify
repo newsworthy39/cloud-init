@@ -125,7 +125,7 @@ DI_DSNAME=""
 DI_DSLIST_DEFAULT="MAAS ConfigDrive NoCloud AltCloud Azure Bigstep \
 CloudSigma CloudStack DigitalOcean Vultr AliYun Ec2 GCE OpenNebula OpenStack \
 OVF SmartOS Scaleway Hetzner IBMCloud Oracle Exoscale RbxCloud UpCloud VMware \
-LXD NWCS Akamai VirtualBox QEMU"
+LXD NWCS Akamai Virtualbox QEMU"
 DI_DSLIST=""
 DI_MODE=""
 DI_ON_FOUND=""
@@ -769,7 +769,7 @@ dscheck_CloudSigma() {
     return $DS_NOT_FOUND
 }
 
-dscheck_VirtualBox() {
+dscheck_Virtualbox() {
     # http://paste.ubuntu.com/23624795/
     dmi_product_name_matches "VirtualBox" && return $DS_FOUND
     return $DS_NOT_FOUND

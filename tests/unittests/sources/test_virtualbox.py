@@ -89,7 +89,7 @@ def common_patches():
         yield
 
 
-class TestDataSourceVirtualBox(CiTestCase):
+class TestDataSourceVirtualbox(CiTestCase):
     """
     Test common functionality that is not transport specific.
     """
@@ -97,13 +97,13 @@ class TestDataSourceVirtualBox(CiTestCase):
     with_logs = True
 
     def setUp(self):
-        super(TestDataSourceVirtualBox, self).setUp()
+        super(TestDataSourceVirtualbox, self).setUp()
         self.tmp = self.tmp_dir()
 
     def test_no_data_access_method(self):
         ds = get_ds(self.tmp)
         with mock.patch(
-            "cloudinit.sources.DataSourceVirtualbox.is_virtualbox_platform",
+            "cloudinit.sources.DataSourceVirtualbox.is_Virtualbox_platform",
             return_value=False,
         ):
             ret = ds.get_data()
@@ -360,7 +360,7 @@ class TestDataSourceVirtualboxEnvVars(FilesystemMockingTestCase):
 
 class TestDataSourceVirtualboxGuestInfo(FilesystemMockingTestCase):
     """
-    Test the guestinfo transport on a VirtualBox platform.
+    Test the guestinfo transport on a Virtualbox platform.
     """
 
     def setUp(self):
