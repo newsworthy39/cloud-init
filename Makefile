@@ -115,7 +115,7 @@ deb-src:
 	@which debuild || \
 		{ echo "Missing devscripts dependency. Install with:"; \
 			echo sudo apt-get install devscripts; exit 1; }
-	$(PYTHON) ./packages/bddeb -S -d --release $(RELEASE)
+	$(PYTHON) ./packages/bddeb -sa -S -d --release $(RELEASE)
 
 doc:
 	tox -e doc
