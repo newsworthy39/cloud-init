@@ -456,7 +456,7 @@ def advertise_local_ip_addrs(host_info, rpctool, rpctool_fn):
 #    return None
 
 def get_guestproperty_key_name(key):
-    return "/Virtualbox/GuestInfo/" + key
+    return "/VirtualBox/GuestInfo/" + key
 
 
 def get_guestinfo_envvar_key_name(key):
