@@ -64,7 +64,6 @@ runcmd:
 - echo "Hello, world."
 """
 
-
 @pytest.fixture(autouse=True)
 def common_patches():
     mocks = [
@@ -382,8 +381,8 @@ class TestDataSourceVirtualboxGuestInfo(FilesystemMockingTestCase):
     def assert_get_data_ok(self, m_fn, m_fn_call_count=6):
         ds = get_ds(self.tmp)
         ret = ds.get_data()
-        self.assertTrue(ret)
         self.assertEqual(m_fn_call_count, m_fn.call_count)
+        self.assertTrue(ret)
         self.assertEqual(
             ds.data_access_method,
             DataSourceVirtualbox.DATA_ACCESS_METHOD_GUESTINFO,
@@ -512,6 +511,26 @@ class TestDataSourceVirtualboxGuestInfo(FilesystemMockingTestCase):
         data = base64.b64encode(data)
         m_fn.side_effect = [data, "gz+b64", "", ""]
         self.assert_get_data_ok(m_fn, m_fn_call_count=4)
+
+    @mock.patch("cloudinit.sources.DataSourceVirtualbox.guestinfo_get_value")
+    @mock.patch("cloudinit.sources.DataSourceVirtualbox.which")
+    def test_get_data_userdata_list(self, m_which_fn, m_fn):
+        m_which_fn.side_effect = ["VBoxControl"]
+        
+        metadata = base64.b64encode(VMW_METADATA_YAML.encode("utf-8"))
+        first = metadata[0:len(metadata)//2]
+        second = metadata[len(metadata)//2:]
+
+        userdata = VMW_USERDATA_YAML.encode("utf-8")
+
+        m_fn.side_effect = ["metadata1:metadata2", "list", 
+                            first, "binary", 
+                            second, "binary",
+                            userdata,"plain", 
+                            "","" # vendor-data
+                            ]
+        
+        self.assert_get_data_ok(m_fn, m_fn_call_count=9)
 
 
 class TestDataSourceVirtualboxGuestInfo_InvalidPlatform(FilesystemMockingTestCase):

@@ -190,7 +190,7 @@ class DataSourceVirtualbox(sources.DataSource):
 
         
         if not self.data_access_method:
-            LOG.error("failed to find a valid data access method")
+            LOG.error("_get_data: failed to find a valid data access method")
             return False
 
         LOG.info("using data access method %s", self._get_subplatform())
@@ -325,7 +325,7 @@ class DataSourceVirtualbox(sources.DataSource):
         """
         vboxcontrol = which("VBoxControl")
 
-        LOG.debug("Found info-transport %s", vboxcontrol)
+        LOG.debug("get_guestinfo_data_fn: Found info-transport %s", vboxcontrol)
 
         # Default to using vmware-rpctool if it is available.
         if vboxcontrol:
@@ -333,18 +333,18 @@ class DataSourceVirtualbox(sources.DataSource):
             # is not.
             self.rpctool = vboxcontrol
             self.rpctool_fn = exec_vboxcontrol
-            LOG.debug(" Using info-transport %s", vboxcontrol)
+            LOG.debug("get_guestinfo_data_fn: Using info-transport %s", vboxcontrol)
 
 
         # If neither vmware-rpctool nor vmtoolsd are available, then nothing
         # can be done.
         if not self.rpctool:
-            LOG.debug(" No rpctool discovered")
+            LOG.debug("get_guestinfo_data_fn: No rpctool discovered")
             return (None, None, None)
 
         def query_guestinfo(rpctool, rpctool_fn):
             md, ud, vd = None, None, None
-            LOG.info("query guestproperty with transport %s", rpctool)
+            LOG.info("get_guestinfo_data_fn: query guestproperty with transport %s", rpctool)
             md = guestinfo("metadata", rpctool, rpctool_fn)
             ud = guestinfo("userdata", rpctool, rpctool_fn)
             vd = guestinfo("vendordata", rpctool, rpctool_fn)
@@ -386,17 +386,20 @@ def decode(key, enc_type, data):
     decode returns the decoded string value of data
     key is a string used to identify the data being decoded in log messages
     """
-    LOG.debug("Getting encoded data for key=%s, enc=%s", key, enc_type)
+    LOG.debug("decode: Getting encoded data for key=%s, enc=%s", key, enc_type)
 
     raw_data = None
     if enc_type in ["gzip+base64", "gz+b64"]:
-        LOG.debug("Decoding %s format %s", enc_type, key)
+        LOG.debug("decode: Decoding %s format %s", enc_type, key)
         raw_data = util.decomp_gzip(atomic_helper.b64d(data))
     elif enc_type in ["base64", "b64"]:
-        LOG.debug("Decoding %s format %s", enc_type, key)
+        LOG.debug("decode: Decoding %s format %s", enc_type, key)
         raw_data = atomic_helper.b64d(data)
+    elif enc_type in ["binary"]:
+        LOG.debug("decode: No decoding: key %s format %s", key, enc_type)
+        raw_data = data
     else:
-        LOG.debug("Plain-text data %s", key)
+        LOG.debug("decode: Plain-text data %s", key)
         raw_data = data
 
     return util.decode_binary(raw_data)
@@ -483,19 +486,35 @@ def exec_vboxcontrol(tool, prop, arg):
     (stdout, stderr) = subp([tool,"--nologo", "guestproperty", prop, arg])
     return (stdout, stderr)
 
-def guestinfo(key, rpctool, rpctool_fn):
+def guestinfo(key, rpctool, rpctool_fn) -> str|None : 
     """
     guestinfo returns the guestinfo value for the provided key, decoding
     the value when required
     """
     val = guestinfo_get_value(key, rpctool, rpctool_fn)
-    LOG.debug("Guestinfo query %s %s", key, val)
+    LOG.debug("guestinfo: Guestinfo query key:%s val<-:%s", key, val)
 
     if not val:
         return None
 
     enc_type = guestinfo_get_value(key + ".encoding", rpctool, rpctool_fn)
-    LOG.debug("Found encoded data %s", enc_type)
+
+    """ 
+    Recursive format: list
+    The format is colon:seperated keys, with the original encoded as, list.
+    Each subsequent entry in the list, has its own .encoding, specifying
+    its content.
+    """
+    if enc_type in ["list"]:
+        LOG.debug("guestinfo: recursive detected format: %s, key: %s", enc_type, key)
+        keys = val.split(":")
+        val = ""
+        for kej in keys:
+            val += guestinfo(kej, rpctool, rpctool_fn)
+        LOG.debug("guestinfo: exit tail-recursion base64-encoded: %s, key: %s", enc_type, key)
+        enc_type = "base64"
+    else:
+        LOG.debug("guestinfo: Found encoded data %s", enc_type)
 
     return decode(get_guestproperty_key_name(key), enc_type, val)
 
@@ -504,7 +523,7 @@ def guestinfo_get_value(key, rpctool, rpctool_fn):
     """
     Returns a guestinfo value for the specified key.
     """
-    LOG.debug("Getting guestproperty value for key %s", key)
+    LOG.debug("guestinfo_get_value: Getting guestproperty value for key %s", key)
 
     try:
         (stdout, stderr) = rpctool_fn(
@@ -512,7 +531,7 @@ def guestinfo_get_value(key, rpctool, rpctool_fn):
         )
 
         if stdout == NOVAL:
-            LOG.debug("No value found for key %s", key)
+            LOG.debug("guestinfo_get_value: No value found for key %s", key)
             return None
         
         val = get_none_if_empty_val(stdout)
