@@ -49,6 +49,8 @@ CFG_BUILTIN = {
         "VMware",
         "NWCS",
         "Akamai",
+        "Virtualbox",
+        "QEMU",
         # At the end to act as a 'catch' when none of the above work...
         "None",
     ],

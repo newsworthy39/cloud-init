@@ -61,6 +61,8 @@ KNOWN_CLOUD_NAMES = [
     "Vultr",
     "ZStack",
     "Outscale",
+    "Virtualbox",
+    "QEMU",
     "Other",
 ]
 
