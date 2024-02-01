@@ -33,6 +33,8 @@ from cloudinit.sources import DataSourceSmartOS as SmartOS
 from cloudinit.sources import DataSourceUpCloud as UpCloud
 from cloudinit.sources import DataSourceVMware as VMware
 from cloudinit.sources import DataSourceVultr as Vultr
+from cloudinit.sources import DataSourceQEMU as Qemu
+from cloudinit.sources import DataSourceVirtualbox as Virtualbox
 from tests.unittests import helpers as test_helpers
 
 DEFAULT_LOCAL = [
@@ -60,6 +62,8 @@ DEFAULT_LOCAL = [
     VMware.DataSourceVMware,
     NWCS.DataSourceNWCS,
     Akamai.DataSourceAkamaiLocal,
+    Virtualbox.DataSourceVirtualbox,
+    Qemu.DataSourceQEMU
 ]
 
 DEFAULT_NETWORK = [
@@ -78,6 +82,8 @@ DEFAULT_NETWORK = [
     UpCloud.DataSourceUpCloud,
     Akamai.DataSourceAkamai,
     VMware.DataSourceVMware,
+    Virtualbox.DataSourceVirtualbox,
+    Qemu.DataSourceQEMU
 ]
 
 
@@ -111,6 +117,7 @@ class ExpectedDataSources(test_helpers.TestCase):
             self.deps_network,
             self.pkg_list,
         )
+
         self.assertEqual(set(DEFAULT_NETWORK), set(found))
 
     @patch.object(
