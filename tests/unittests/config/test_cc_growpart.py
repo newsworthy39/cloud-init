@@ -136,6 +136,7 @@ class TestConfig(TestCase):
     def tearDown(self):
         self.tmpfile.close()
         os.remove(self.tmppath)
+        super().tearDown()
 
     @mock.patch.object(os.path, "isfile", return_value=False)
     def test_no_resizers_auto_is_fine(self, m_isfile):
@@ -389,6 +390,22 @@ class TestResize(unittest.TestCase):
         finally:
             cc_growpart.device_part_info = opinfo
             os.stat = real_stat
+
+
+class TestGetSize:
+    @pytest.mark.parametrize(
+        "file_exists, expected",
+        (
+            (False, None),
+            (True, 1),
+        ),
+    )
+    def test_get_size_behaves(self, file_exists, expected, tmp_path):
+        """Ensure that get_size() doesn't raise exception"""
+        tmp_file = tmp_path / "tmp.txt"
+        if file_exists:
+            tmp_file.write_bytes(b"0")
+        assert expected == cc_growpart.get_size(tmp_file)
 
 
 class TestEncrypted:

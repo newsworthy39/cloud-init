@@ -69,7 +69,6 @@ DI_DISABLED="disabled"
 DI_DEBUG_LEVEL="${DEBUG_LEVEL:-1}"
 
 PATH_ROOT=${PATH_ROOT:-""}
-PATH_RUN=${PATH_RUN:-"${PATH_ROOT}/run"}
 PATH_SYS_CLASS_DMI_ID=${PATH_SYS_CLASS_DMI_ID:-${PATH_ROOT}/sys/class/dmi/id}
 PATH_SYS_HYPERVISOR=${PATH_SYS_HYPERVISOR:-${PATH_ROOT}/sys/hypervisor}
 PATH_SYS_CLASS_BLOCK=${PATH_SYS_CLASS_BLOCK:-${PATH_ROOT}/sys/class/block}
@@ -83,11 +82,17 @@ PATH_PROC_UPTIME=${PATH_PROC_UPTIME:-${PATH_ROOT}/proc/uptime}
 PATH_ETC_CLOUD="${PATH_ETC_CLOUD:-${PATH_ROOT}/etc/cloud}"
 PATH_ETC_CI_CFG="${PATH_ETC_CI_CFG:-${PATH_ETC_CLOUD}/cloud.cfg}"
 PATH_ETC_CI_CFG_D="${PATH_ETC_CI_CFG_D:-${PATH_ETC_CI_CFG}.d}"
-PATH_RUN_CI="${PATH_RUN_CI:-${PATH_RUN}/cloud-init}"
-PATH_RUN_CI_CFG=${PATH_RUN_CI_CFG:-${PATH_RUN_CI}/cloud.cfg}
-PATH_RUN_DI_RESULT=${PATH_RUN_DI_RESULT:-${PATH_RUN_CI}/.ds-identify.result}
 
-DI_LOG="${DI_LOG:-${PATH_RUN_CI}/ds-identify.log}"
+# Declare global here, so they can be overwritten from the outside.
+# if not overwritten from the outside, we'll populate them with system default
+# paths, once we have determined the system we're running on.
+# This is done in set_run_path(), which must run after read_uname_info().
+PATH_RUN="${PATH_RUN:-}"
+PATH_RUN_CI="${PATH_RUN_CI:-}"
+PATH_RUN_CI_CFG="${PATH_RUN_CI_CFG:-}"
+PATH_RUN_DI_RESULT="${PATH_RUN_DI_RESULT:-}"
+
+DI_LOG="${DI_LOG:-}"
 _DI_LOGGED=""
 
 # set DI_MAIN='noop' in environment to source this file with no main called.
@@ -125,7 +130,7 @@ DI_DSNAME=""
 DI_DSLIST_DEFAULT="MAAS ConfigDrive NoCloud AltCloud Azure Bigstep \
 CloudSigma CloudStack DigitalOcean Vultr AliYun Ec2 GCE OpenNebula OpenStack \
 OVF SmartOS Scaleway Hetzner IBMCloud Oracle Exoscale RbxCloud UpCloud VMware \
-LXD NWCS Akamai Virtualbox QEMU"
+LXD NWCS Akamai WSL Virtualbox QEMU"
 DI_DSLIST=""
 DI_MODE=""
 DI_ON_FOUND=""
@@ -154,6 +159,8 @@ debug() {
     local lvl="$1"
     shift
     [ "$lvl" -gt "${DI_DEBUG_LEVEL}" ] && return
+
+    [ "$DI_LOG" = "" ] && DI_LOG="stderr"
 
     if [ "$_DI_LOGGED" != "$DI_LOG" ]; then
         # first time here, open file descriptor for append
@@ -436,6 +443,18 @@ detect_virt() {
         if [ $r -eq 0 ] || { [ $r -ne 0 ] && [ "$out" = "none" ]; }; then
             virt="$out"
         fi
+    elif command -v virt-what >/dev/null 2>&1; then
+        # Map virt-what's names to those systemd-detect-virt that
+        # don't match up.
+        out=$(virt-what 2>&1 | head -n 1) && {
+            case "$out" in
+                ibm_systemz-zvm)    virt="zvm" ;;
+                hyperv)             virt="microsoft" ;;
+                virtualbox)         virt="oracle" ;;
+                xen-domU)           virt="xen" ;;
+                *)                  virt="$out"
+            esac
+        }
     elif [ "$DI_UNAME_KERNEL_NAME" = "FreeBSD" -o "$DI_UNAME_KERNEL_NAME" = "Dragonfly" ]; then
         # Map FreeBSD's vm_guest names to those systemd-detect-virt that
         # don't match up. See
@@ -741,11 +760,15 @@ probe_floppy() {
     [ -b "$fpath" ] ||
         { STATE_FLOPPY_PROBED=1; return 1; }
 
-    modprobe --use-blacklist floppy >/dev/null 2>&1 ||
+    # Use "-b" option as Busybox modprobe doesn't support long-option
+    modprobe -b floppy >/dev/null 2>&1 ||
         { STATE_FLOPPY_PROBED=1; return 1; }
 
-    udevadm settle "--exit-if-exists=$fpath" ||
-        { STATE_FLOPPY_PROBED=1; return 1; }
+    # Some Linux distros/non-Linux OSes may not have udev
+    if command -v udevadm; then
+        udevadm settle "--exit-if-exists=$fpath" ||
+            { STATE_FLOPPY_PROBED=1; return 1; }
+    fi
 
     [ -b "$fpath" ]
     STATE_FLOPPY_PROBED=$?
@@ -807,24 +830,21 @@ check_config() {
     if [ "$1" = "$files" -a ! -f "$1" ]; then
         return 1
     fi
-    local line="" ret="" found=0 found_fn="" oifs="$IFS" out=""
-    out=$(grep "$key\"\?:" "$@" 2>/dev/null)
-    IFS=${CR}
-    for line in $out; do
-        # drop '# comment'
-        line=${line%%#*}
-        # if more than one file was 'grep'ed, then grep will output filename:
-        # but if only one file, line will not be prefixed.
-        if [ $# -eq 1 ]; then
-            found_fn="$1"
-        else
-            found_fn="${line%%:*}"
-            line=${line#*:}
-        fi
-        ret=${line#*: };
-        found=$((found+1))
+    local fname="" line="" ret="" found=0 found_fn=""
+    # shellcheck disable=2094
+    for fname in "$@"; do
+        [ -f "$fname" ] || continue
+        while read line; do
+            line=${line%%#*}
+            case "$line" in
+                $key:\ *|"${key}":)
+                    ret=${line#*:};
+                    ret=${ret# };
+                    found=$((found+1))
+                    found_fn="$fname";;
+            esac
+        done <"$fname"
     done
-    IFS="$oifs"
     if [ $found -ne 0 ]; then
         _RET="$ret"
         _RET_fname="$found_fn"
@@ -1099,7 +1119,8 @@ is_cdrom_ovf() {
     fi
 
     local idstr="http://schemas.dmtf.org/ovf/environment/1"
-    grep --quiet --ignore-case "$idstr" "${PATH_ROOT}$dev"
+    # POSIX grep only supports short-options, long-options are GNU-specific
+    grep -q -i "$idstr" "${PATH_ROOT}$dev"
 }
 
 has_ovf_cdrom() {
@@ -1580,6 +1601,29 @@ dscheck_VMware() {
     return "${DS_NOT_FOUND}"
 }
 
+dscheck_WSL() {
+    if [ "${DI_UNAME_KERNEL_NAME}" != "Linux" ]; then
+        return "${DS_NOT_FOUND}"
+    fi
+
+    if [ "${DI_VIRT}" != "wsl" ]; then
+        return "${DS_NOT_FOUND}"
+    fi
+
+    # The datasource needs to find the cloud-config files in the Windows host
+    # filesystem, which is exposed as 9p mount points, one per disk drive (partition).
+    # If none is found, the datasource cannot proceed.
+    # See https://youtu.be/lwhMThePdIo?t=2431&si=JKTHx39TyRgPbzkZ and
+    # https://learn.microsoft.com/en-us/windows/wsl/wsl-config#what-is-drvfs
+    # for more information.
+    if [ "$(grep -c '^[^[:space:]]* [^[:space:]]* 9p [^[:space:]]*aname=drvfs;.*' "${PATH_ROOT}/proc/mounts")" = 0 ]; then
+        debug 1 "WSL datasource requires access to Windows drives mount points"
+        return "${DS_NOT_FOUND}"
+    fi
+
+    return "${DS_FOUND}"
+}
+
 collect_info() {
     read_pid1_product_name
     read_config
@@ -1594,6 +1638,7 @@ collect_info() {
 }
 
 print_info() {
+    read_uname_info
     collect_info
     _print_info
 }
@@ -1850,12 +1895,25 @@ read_uptime() {
     return
 }
 
+set_run_path() {
+    if [ "$DI_UNAME_KERNEL_NAME" != "Linux" ]; then
+        PATH_RUN=${PATH_RUN:-"${PATH_ROOT}/var/run"}
+    else
+        PATH_RUN=${PATH_RUN:-"${PATH_ROOT}/run"}
+    fi
+
+    PATH_RUN_CI="${PATH_RUN_CI:-${PATH_RUN}/cloud-init}"
+    PATH_RUN_CI_CFG=${PATH_RUN_CI_CFG:-${PATH_RUN_CI}/cloud.cfg}
+    PATH_RUN_DI_RESULT=${PATH_RUN_DI_RESULT:-${PATH_RUN_CI}/.ds-identify.result}
+
+    DI_LOG="${DI_LOG:-${PATH_RUN_CI}/ds-identify.log}"
+}
+
 _main() {
     local dscheck_fn="" ret_dis=1 ret_en=0
 
     read_uptime
     debug 1 "[up ${_RET}s]" "ds-identify $*"
-    read_uname_info
     read_virt
     read_kernel_cmdline
     if is_disabled; then
@@ -1978,6 +2036,9 @@ _main() {
 main() {
     local ret=""
     ensure_sane_path
+    read_uname_info
+    set_run_path
+
     [ -d "$PATH_RUN_CI" ] || mkdir -p "$PATH_RUN_CI"
     if [ "${1:+$1}" != "--force" ] && [ -f "$PATH_RUN_CI_CFG" ] &&
         [ -f "$PATH_RUN_DI_RESULT" ]; then
