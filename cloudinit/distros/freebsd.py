@@ -36,6 +36,10 @@ class Distro(cloudinit.distros.bsd.BSD):
     pkg_cmd_upgrade_prefix = ["pkg", "upgrade"]
     prefer_fqdn = True  # See rc.conf(5) in FreeBSD
     home_dir = "/usr/home"
+    # FreeBSD has the following dhclient lease path:
+    # /var/db/dhclient.leases.<iface_name>
+    dhclient_lease_directory = "/var/db"
+    dhclient_lease_file_regex = r"dhclient.leases.\w+"
 
     @classmethod
     def reload_init(cls, rcs=None):
@@ -173,7 +177,7 @@ class Distro(cloudinit.distros.bsd.BSD):
     def apply_locale(self, locale, out_fn=None):
         # Adjust the locales value to the new value
         newconf = StringIO()
-        for line in util.load_file(self.login_conf_fn).splitlines():
+        for line in util.load_text_file(self.login_conf_fn).splitlines():
             newconf.write(
                 re.sub(r"^default:", r"default:lang=%s:" % locale, line)
             )

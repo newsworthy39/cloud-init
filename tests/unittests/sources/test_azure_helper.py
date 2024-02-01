@@ -14,7 +14,7 @@ from cloudinit import url_helper
 from cloudinit.sources.azure import errors
 from cloudinit.sources.helpers import azure as azure_helper
 from cloudinit.sources.helpers.azure import WALinuxAgentShim as wa_shim
-from cloudinit.util import load_file
+from cloudinit.util import load_text_file
 from tests.unittests.helpers import CiTestCase, ExitStack, mock
 from tests.unittests.sources.test_azure import construct_ovf_env
 
@@ -106,6 +106,15 @@ HEALTH_REPORT_DESCRIPTION_TRIM_LEN = 512
 MOCKPATH = "cloudinit.sources.helpers.azure."
 
 
+@pytest.fixture(autouse=True)
+def fake_vm_id(mocker):
+    vm_id = "foo"
+    mocker.patch(
+        "cloudinit.sources.azure.identity.query_vm_id", return_value=vm_id
+    )
+    yield vm_id
+
+
 @pytest.fixture
 def mock_readurl():
     with mock.patch(MOCKPATH + "url_helper.readurl", autospec=True) as m:
@@ -146,7 +155,6 @@ class TestGetIpFromLeaseValue:
 
 
 class TestGoalStateParsing(CiTestCase):
-
     default_parameters = {
         "incarnation": 1,
         "container_id": "MyContainerId",
@@ -242,7 +250,6 @@ class TestGoalStateParsing(CiTestCase):
 
 
 class TestAzureEndpointHttpClient(CiTestCase):
-
     regular_headers = {
         "x-ms-agent-name": "WALinuxAgent",
         "x-ms-version": "2012-11-30",
@@ -524,8 +531,8 @@ class TestOpenSSLManagerActions(CiTestCase):
 
     @unittest.skip("todo move to cloud_test")
     def test_pubkey_extract(self):
-        cert = load_file(self._data_file("pubkey_extract_cert"))
-        good_key = load_file(self._data_file("pubkey_extract_ssh_key"))
+        cert = load_text_file(self._data_file("pubkey_extract_cert"))
+        good_key = load_text_file(self._data_file("pubkey_extract_ssh_key"))
         sslmgr = azure_helper.OpenSSLManager()
         key = sslmgr._get_ssh_key_from_cert(cert)
         self.assertEqual(good_key, key)
@@ -542,8 +549,10 @@ class TestOpenSSLManagerActions(CiTestCase):
         from certs are extracted and that fingerprints are converted to
         the form specified in the ovf-env.xml file.
         """
-        cert_contents = load_file(self._data_file("parse_certificates_pem"))
-        fingerprints = load_file(
+        cert_contents = load_text_file(
+            self._data_file("parse_certificates_pem")
+        )
+        fingerprints = load_text_file(
             self._data_file("parse_certificates_fingerprints")
         ).splitlines()
         mock_decrypt_certs.return_value = cert_contents
@@ -556,7 +565,6 @@ class TestOpenSSLManagerActions(CiTestCase):
 
 
 class TestGoalStateHealthReporter(CiTestCase):
-
     maxDiff = None
 
     default_parameters = {
@@ -1543,19 +1551,23 @@ class TestOvfEnvXml:
         [
             (
                 construct_ovf_env(username=None),
-                "No ovf-env.xml configuration for 'UserName'",
+                "unexpected metadata parsing ovf-env.xml: "
+                "missing configuration for 'UserName'",
             ),
             (
                 construct_ovf_env(hostname=None),
-                "No ovf-env.xml configuration for 'HostName'",
+                "unexpected metadata parsing ovf-env.xml: "
+                "missing configuration for 'HostName'",
             ),
         ],
     )
     def test_missing_required_fields(self, ovf, error):
-        with pytest.raises(azure_helper.BrokenAzureDataSource) as exc_info:
+        with pytest.raises(
+            errors.ReportableErrorOvfInvalidMetadata
+        ) as exc_info:
             azure_helper.OvfEnvXml.parse_text(ovf)
 
-        assert str(exc_info.value) == error
+        assert str(exc_info.value.reason) == error
 
     def test_multiple_sections_fails(self):
         ovf = """\
@@ -1575,13 +1587,15 @@ class TestOvfEnvXml:
             </ns1:ProvisioningSection>
             </ns0:Environment>"""
 
-        with pytest.raises(azure_helper.BrokenAzureDataSource) as exc_info:
+        with pytest.raises(
+            errors.ReportableErrorOvfInvalidMetadata
+        ) as exc_info:
             azure_helper.OvfEnvXml.parse_text(ovf)
 
         assert (
-            str(exc_info.value)
-            == "Multiple configuration matches in ovf-exml.xml "
-            "for 'ProvisioningSection' (2)"
+            exc_info.value.reason
+            == "unexpected metadata parsing ovf-env.xml: "
+            "multiple configuration matches for 'ProvisioningSection' (2)"
         )
 
     def test_multiple_properties_fails(self):
@@ -1607,13 +1621,15 @@ class TestOvfEnvXml:
             </ns1:PlatformSettingsSection>
             </ns0:Environment>"""
 
-        with pytest.raises(azure_helper.BrokenAzureDataSource) as exc_info:
+        with pytest.raises(
+            errors.ReportableErrorOvfInvalidMetadata
+        ) as exc_info:
             azure_helper.OvfEnvXml.parse_text(ovf)
 
         assert (
-            str(exc_info.value)
-            == "Multiple configuration matches in ovf-exml.xml "
-            "for 'HostName' (2)"
+            exc_info.value.reason
+            == "unexpected metadata parsing ovf-env.xml: "
+            "multiple configuration matches for 'HostName' (2)"
         )
 
     def test_non_azure_ovf(self):
@@ -1632,19 +1648,58 @@ class TestOvfEnvXml:
         )
 
     @pytest.mark.parametrize(
-        "ovf,error",
+        "ovf,reason",
         [
-            ("", "Invalid ovf-env.xml: no element found: line 1, column 0"),
+            (
+                "",
+                "error parsing ovf-env.xml: "
+                "no element found: line 1, column 0",
+            ),
             (
                 "<!!!!>",
-                "Invalid ovf-env.xml: not well-formed (invalid token): "
-                "line 1, column 2",
+                "error parsing ovf-env.xml: "
+                "not well-formed (invalid token): line 1, column 2",
             ),
-            ("badxml", "Invalid ovf-env.xml: syntax error: line 1, column 0"),
+            (
+                "badxml",
+                "error parsing ovf-env.xml: syntax error: line 1, column 0",
+            ),
         ],
     )
-    def test_invalid_xml(self, ovf, error):
-        with pytest.raises(azure_helper.BrokenAzureDataSource) as exc_info:
+    def test_invalid_xml(self, ovf, reason):
+        with pytest.raises(
+            errors.ReportableErrorOvfParsingException
+        ) as exc_info:
             azure_helper.OvfEnvXml.parse_text(ovf)
 
-        assert str(exc_info.value) == error
+        assert exc_info.value.reason == reason
+
+
+class TestReportDmesgToKvp:
+    @mock.patch.object(
+        azure_helper.subp, "subp", return_value=("dmesg test", "")
+    )
+    @mock.patch.object(azure_helper, "report_compressed_event")
+    def test_report_dmesg_to_kvp(
+        self, mock_report_compressed_event, mock_subp
+    ):
+        azure_helper.report_dmesg_to_kvp()
+
+        assert mock_subp.mock_calls == [
+            mock.call(["dmesg"], decode=False, capture=True)
+        ]
+        assert mock_report_compressed_event.mock_calls == [
+            mock.call("dmesg", "dmesg test")
+        ]
+
+    @mock.patch.object(azure_helper.subp, "subp", side_effect=[Exception()])
+    @mock.patch.object(azure_helper, "report_compressed_event")
+    def test_report_dmesg_to_kvp_dmesg_error(
+        self, mock_report_compressed_event, mock_subp
+    ):
+        azure_helper.report_dmesg_to_kvp()
+
+        assert mock_subp.mock_calls == [
+            mock.call(["dmesg"], decode=False, capture=True)
+        ]
+        assert mock_report_compressed_event.mock_calls == []
